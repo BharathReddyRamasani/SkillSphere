@@ -39,6 +39,8 @@ serve(async (req) => {
         return await generateAIInsights(supabase, userId, data);
       case 'initialize_user':
         return await initializeUserData(supabase, userId, data);
+      case 'generate_quiz':
+        return await generateQuiz(supabase, userId, data);
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
           status: 400,
@@ -54,15 +56,72 @@ serve(async (req) => {
   }
 });
 
+async function generateQuiz(supabase: any, userId: string, data: { moduleId: string, courseId: string }) {
+  const { moduleId, courseId } = data;
+
+  const { data: moduleData } = await supabase.from('modules').select('id, title').eq('id', moduleId).single();
+  const { data: courseData } = await supabase.from('courses').select('id, title').eq('id', courseId).single();
+
+  if (!moduleData || !courseData) {
+    throw new Error('Module or Course not found');
+  }
+
+  const { data: existingQuiz } = await supabase.from('quizzes').select('id').eq('module_id', moduleId).single();
+  if (existingQuiz) {
+    console.log(`Quiz for module ${moduleId} already exists.`);
+  }
+
+  const prompt = `
+    You are an expert quiz creator for a tech learning platform.
+    The user is studying the course: "${courseData.title}".
+    They have just finished the module: "${moduleData.title}".
+
+    Generate a 5-question multiple-choice quiz based on the likely topics of this module.
+    For each question, provide 4 options (a, b, c, d) and indicate the correct answer.
+
+    Return the response as a single, minified JSON array of objects, with no extra text or explanations.
+    The format for each object in the array must be:
+    {
+      "question_text": "Your question here?",
+      "options": {"a": "Option A", "b": "Option B", "c": "Option C", "d": "Option D"},
+      "correct_answer": "c"
+    }
+  `;
+
+  const aiResponse = await callOpenAI(prompt);
+  const questions = JSON.parse(aiResponse);
+
+  const { data: newQuiz, error: quizError } = await supabase.from('quizzes').insert({
+    course_id: courseId,
+    module_id: moduleId,
+    quiz_type: 'module_quiz',
+    title: `${moduleData.title} Quiz`
+  }).select().single();
+
+  if (quizError) throw quizError;
+
+  const questionsToInsert = questions.map((q: any) => ({
+    quiz_id: newQuiz.id,
+    question_text: q.question_text,
+    options: q.options,
+    correct_answer: q.correct_answer
+  }));
+
+  const { error: questionsError } = await supabase.from('questions').insert(questionsToInsert);
+  if (questionsError) throw questionsError;
+
+  return new Response(JSON.stringify({ success: true, quizId: newQuiz.id, questions: questionsToInsert }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
 async function generatePersonalizedRoadmap(supabase: any, userId: string, data: any) {
-  // Get user profile and apply forgetting curve to skills
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
   const { data: rawSkills } = await supabase.from('user_skills').select('*').eq('user_id', userId);
   const { data: goals } = await supabase.from('user_goals').select('*').eq('user_id', userId);
   const { data: activities } = await supabase.from('learning_activities').select('*').eq('user_id', userId).order('completed_at', { ascending: false }).limit(20);
   const { data: preferences } = await supabase.from('user_preferences').select('*').eq('user_id', userId).single();
 
-  // Apply Ebbinghaus Forgetting Curve to update skill mastery
   const updatedSkills = await applyForgettingCurve(supabase, rawSkills || [], userId);
 
   const prompt = `You are the personalization engine for LearnSphere. Generate a highly personalized 12-week learning roadmap.
@@ -90,10 +149,8 @@ Make each roadmap unique even for similar users.`;
   const aiResponse = await callOpenAI(prompt);
   const roadmapWeeks = JSON.parse(aiResponse);
 
-  // Clear existing roadmap
   await supabase.from('roadmap_weeks').delete().eq('user_id', userId);
 
-  // Insert new roadmap weeks with personalization
   const weeksWithUserId = roadmapWeeks.map((week: any, index: number) => ({
     ...week,
     user_id: userId,
@@ -115,16 +172,10 @@ async function generateJobMatches(supabase: any, userId: string, data: any) {
   const { data: preferences } = await supabase.from('user_preferences').select('*').eq('user_id', userId).single();
   const { data: activities } = await supabase.from('learning_activities').select('*').eq('user_id', userId).order('completed_at', { ascending: false }).limit(10);
 
-  // Apply forgetting curve and calculate placement readiness
   const skills = await applyForgettingCurve(supabase, rawSkills || [], userId);
-  
-  // Calculate user skill vector for cosine similarity
   const userSkillVector = calculateSkillVector(skills);
-  
-  // Define job market vectors (in real app, this would come from job database)
   const jobMarketVectors = getJobMarketVectors();
-  
-  // Calculate cosine similarity matches
+
   const jobMatches = jobMarketVectors.map(job => {
     const matchScore = calculateCosineSimilarity(userSkillVector, job.skillVector);
     const missingSkills = job.required_skills.filter(skill => 
@@ -176,7 +227,6 @@ async function generateAIInsights(supabase: any, userId: string, data: any) {
   const aiResponse = await callOpenAI(prompt);
   const insights = JSON.parse(aiResponse);
 
-  // Update user stats with AI insights
   await supabase.from('user_stats').upsert({
     user_id: userId,
     placement_readiness: insights.estimated_placement_readiness,
@@ -192,7 +242,6 @@ async function generateAIInsights(supabase: any, userId: string, data: any) {
 async function initializeUserData(supabase: any, userId: string, data: any) {
   const { preferences = {} } = data || {};
   
-  // Initialize user preferences
   await supabase.from('user_preferences').upsert({
     user_id: userId,
     learning_style: preferences.learning_style || 'visual',
@@ -201,7 +250,6 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
     experience_level: preferences.experience_level || 'intermediate'
   });
 
-  // Initialize basic skills
   const defaultSkills = [
     { skill_name: 'JavaScript', level: 60, category: 'Programming' },
     { skill_name: 'React', level: 45, category: 'Frontend' },
@@ -216,7 +264,6 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
     });
   }
 
-  // Initialize career goals
   await supabase.from('user_goals').upsert({
     user_id: userId,
     goal_type: 'career',
@@ -226,7 +273,6 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
     status: 'in_progress'
   });
 
-  // Initialize user stats
   await supabase.from('user_stats').upsert({
     user_id: userId,
     placement_readiness: 35,
@@ -241,18 +287,15 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
   });
 }
 
-// Ebbinghaus Forgetting Curve Implementation
 async function applyForgettingCurve(supabase: any, skills: any[], userId: string) {
   const updatedSkills = [];
   
   for (const skill of skills) {
     const daysSincePractice = Math.floor((Date.now() - new Date(skill.last_practiced).getTime()) / (1000 * 60 * 60 * 24));
     
-    // Forgetting curve: R = e^(-t/S) where R=retention, t=time, S=strength
     const retentionRate = Math.exp(-daysSincePractice * skill.decay_rate);
     const decayedMastery = skill.mastery_score * retentionRate;
     
-    // Update skill mastery in database
     const newMastery = Math.max(0.1, Math.min(1, decayedMastery));
     await supabase.from('user_skills').update({ 
       mastery_score: newMastery,
@@ -265,7 +308,6 @@ async function applyForgettingCurve(supabase: any, skills: any[], userId: string
   return updatedSkills;
 }
 
-// Calculate skill vector for cosine similarity
 function calculateSkillVector(skills: any[]) {
   const skillCategories = ['Programming', 'Frontend', 'Backend', 'Database', 'AI/ML', 'DevOps', 'Mobile', 'Design'];
   return skillCategories.map(category => {
@@ -276,7 +318,6 @@ function calculateSkillVector(skills: any[]) {
   });
 }
 
-// Cosine similarity calculation
 function calculateCosineSimilarity(vectorA: number[], vectorB: number[]) {
   const dotProduct = vectorA.reduce((sum, a, i) => sum + a * vectorB[i], 0);
   const magnitudeA = Math.sqrt(vectorA.reduce((sum, a) => sum + a * a, 0));
@@ -284,7 +325,6 @@ function calculateCosineSimilarity(vectorA: number[], vectorB: number[]) {
   return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
 }
 
-// Job market vectors (simplified for demo)
 function getJobMarketVectors() {
   return [
     {
@@ -329,7 +369,6 @@ function getJobMarketVectors() {
   ];
 }
 
-// Calculate placement readiness score
 function calculatePlacementReadiness(userSkills: any[], jobRequiredSkills: string[]) {
   const matchedSkills = jobRequiredSkills.filter(required => 
     userSkills.some(userSkill => 
@@ -365,7 +404,6 @@ async function callOpenAI(prompt: string): Promise<string> {
       const errorText = await response.text();
       console.error('OpenAI API error response:', errorText);
       
-      // Handle rate limiting by returning fallback data
       if (response.status === 429) {
         console.log('Rate limited, returning fallback data');
         return generateFallbackResponse(prompt);
@@ -427,6 +465,19 @@ function generateFallbackResponse(prompt: string): string {
         placement_readiness: 60,
         personalized_description: "Great entry-level opportunity to start your career",
         growth_potential: "High potential for learning and advancement"
+      }
+    ]);
+  } else if (prompt.includes('generate_quiz')) {
+    return JSON.stringify([
+      {
+        question_text: "What is a fundamental concept in this module?",
+        options: {
+          a: "Option A",
+          b: "Option B",
+          c: "Option C",
+          d: "Option D"
+        },
+        correct_answer: "c"
       }
     ]);
   } else {
