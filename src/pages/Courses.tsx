@@ -369,41 +369,57 @@
 // export default Courses;
 
 // FILE: src/pages/Courses.tsx
+// FILE: src/pages/Courses.tsx
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { usePersonalizedData } from "@/hooks/usePersonalizedData";
-import { CourseCard } from "@/components/ui/CourseCard"; // We will only use this to render courses
+import { CourseCard } from "@/components/ui/CourseCard";
 import Navigation from "@/components/Navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookOpen, Filter, Search, Loader2 } from "lucide-react";
 
+const CATEGORIES = [
+  'All', 
+  'Full Stack', 
+  'Frontend', 
+  'Backend', 
+  'Database', 
+  'AI/ML', 
+  'CS Fundamentals', 
+  'Cloud', 
+  'DevOps', 
+  'Mobile', 
+  'Security',
+  'Design',
+  'Blockchain',
+  'Game Dev'
+];
+
 const Courses = () => {
   const [allCourses, setAllCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
+  const [activeCategory, setActiveCategory] = useState('All');
+
   const { enrollments, enrollInCourse } = usePersonalizedData();
 
   useEffect(() => {
     const fetchCourses = async () => {
       setLoading(true);
       const { data, error } = await supabase.from('courses').select('*').order('created_at');
-      
       if (error) {
         console.error("Error fetching courses:", error);
       } else {
         setAllCourses(data || []);
       }
-      
       setLoading(false);
     };
     fetchCourses();
   }, []);
 
   const filteredCourses = useMemo(() => {
-    // This merges your database courses with the user's specific progress
     const coursesWithProgress = allCourses.map(course => {
       const userEnrollment = enrollments.find(e => e.course_id === course.id);
       return {
@@ -412,17 +428,13 @@ const Courses = () => {
         progress: userEnrollment ? Math.round(userEnrollment.progress_percentage || 0) : 0,
       };
     });
-
-    if (!searchTerm) {
-      return coursesWithProgress;
-    }
-
-    // This filters the list based on the search term
-    return coursesWithProgress.filter(course =>
-      course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (course.description && course.description.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  }, [allCourses, enrollments, searchTerm]);
+    
+    return coursesWithProgress.filter(course => {
+      const matchesCategory = activeCategory === 'All' || course.category === activeCategory;
+      const matchesSearch = searchTerm === '' || course.title.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesCategory && matchesSearch;
+    });
+  }, [allCourses, enrollments, searchTerm, activeCategory]);
 
   const enrolledCourses = filteredCourses.filter(c => c.enrolled);
   const availableCourses = filteredCourses.filter(c => !c.enrolled);
@@ -441,20 +453,30 @@ const Courses = () => {
           </p>
         </header>
 
-        <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by title or description..." 
-              className="pl-10" 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="mb-8">
+          <div className="flex flex-col md:flex-row gap-4 mb-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search by title..." 
+                className="pl-10" 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
-          <Button variant="outline">
-            <Filter className="w-4 h-4 mr-2" />
-            Filters
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map(category => (
+              <Button
+                key={category}
+                variant={activeCategory === category ? 'default' : 'outline'}
+                onClick={() => setActiveCategory(category)}
+                className={activeCategory === category ? 'hero-gradient text-white' : ''}
+              >
+                {category}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {loading ? (

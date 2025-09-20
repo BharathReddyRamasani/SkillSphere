@@ -562,6 +562,14 @@
 
 // export default CourseDetail;
 // FILE: src/pages/CourseDetail.tsx
+// FILE: src/pages/CourseDetail.tsx
+// FILE: src/pages/CourseDetail.tsx
+
+// FILE: src/pages/CourseDetail.tsx
+// FILE: src/pages/CourseDetail.tsx
+// FILE: src/components/QuizModal.tsx
+// FILE: src/pages/CourseDetail.tsx
+// FILE: src/pages/CourseDetail.tsx
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -569,119 +577,153 @@ import { supabase } from '@/integrations/supabase/client';
 import Navigation from '@/components/Navigation';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Loader2, BrainCircuit } from 'lucide-react';
+import { Loader2, BrainCircuit, CheckCircle, Trophy, FileText, Video, RotateCw } from 'lucide-react';
 import { usePersonalizedData } from '@/hooks/usePersonalizedData';
-
-// Define a type for our course and module for better safety
-interface Course {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  // Add any other course properties you expect from the DB
-}
-interface Module {
-  id: string;
-  title: string;
-  position: number;
-}
+import { useToast } from "@/hooks/use-toast";
+import { QuizModal } from '@/components/QuizModal';
 
 const CourseDetail = () => {
   const { courseId } = useParams<{ courseId: string }>();
-  const { user } = usePersonalizedData();
-  const [course, setCourse] = useState<Course | null>(null); // Use our new type
-  const [modules, setModules] = useState<Module[]>([]); // Use our new type
+  const { user, enrollments, markCourseAsComplete, trackLearningActivity } = usePersonalizedData();
+  const { toast } = useToast();
+
+  const [course, setCourse] = useState<any>(null);
+  const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+  const [currentQuizData, setCurrentQuizData] = useState<any>(null);
   const [generatingQuiz, setGeneratingQuiz] = useState<string | null>(null);
-  const [generatedQuiz, setGeneratedQuiz] = useState<any>(null);
+
+  const enrollment = enrollments.find(e => e.course_id === courseId);
+  const courseProgress = enrollment ? Math.round(enrollment.progress_percentage || 0) : 0;
+  const isCompleted = enrollment?.status === 'completed';
 
   useEffect(() => {
+    // This function fetches all the necessary data for the page
     const fetchCourseData = async () => {
-      if (!courseId) {
-        setLoading(false);
-        return;
-      }
-      
+      if (!courseId) { setLoading(false); return; }
       setLoading(true);
       try {
         const courseRequest = supabase.from('courses').select('*').eq('id', courseId).single();
         const modulesRequest = supabase.from('modules').select('*').eq('course_id', courseId).order('position');
         const [courseResponse, modulesResponse] = await Promise.all([courseRequest, modulesRequest]);
-
-        if (courseResponse.error) throw courseResponse.error;
-        if (modulesResponse.error) throw modulesResponse.error;
-
         setCourse(courseResponse.data);
         setModules(modulesResponse.data || []);
-      } catch (error) {
-        console.error("Error fetching course data:", error);
-        setCourse(null); // Ensure course is null on error
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error("Error fetching course data:", error); setCourse(null); }
+      finally { setLoading(false); }
     };
     fetchCourseData();
   }, [courseId]);
-  
-  const handleGenerateQuiz = async (moduleId: string) => {
-    // ... (This function remains the same as before)
+
+  const handleGenerateQuiz = async (moduleId: string, regenerate = false) => {
+    // This function remains the same
+    if (!user || !courseId) return;
+    setGeneratingQuiz(moduleId);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-personalization', {
+        body: { userId: user.id, action: 'generate_quiz', data: { moduleId, courseId, regenerate } }
+      });
+      if (error) throw error;
+      setCurrentQuizData({ ...data, moduleTitle: modules.find(m => m.id === moduleId)?.title });
+      setIsQuizModalOpen(true);
+      toast({ title: "Quiz Generated!", description: "Your AI-powered quiz is ready." });
+    } catch (error) {
+      console.error('Failed to generate quiz:', error);
+      toast({ title: "Error", description: (error as Error).message || "Edge Function returned a non-2xx status code", variant: "destructive" });
+    } finally {
+      setGeneratingQuiz(null);
+    }
   };
 
-  // CRITICAL FIX: This loading check prevents any rendering until we have data
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const handleQuizSubmit = async (quizId: string, score: number) => {
+    // This function remains the same
+    if (!user || !quizId) return;
+    await supabase.from('quiz_attempts').upsert({ user_id: user.id, quiz_id: quizId, score: score }, { onConflict: 'user_id, quiz_id' });
+    toast({ title: "Score Saved!", description: `You scored ${score}%.` });
+    await trackLearningActivity({ activity_type: 'quiz', title: `Completed Quiz: ${currentQuizData?.moduleTitle || 'Module Quiz'}`, accuracy_score: score });
+  };
+  
+  const handleMarkAsComplete = () => {
+    // This function remains the same
+    if (courseProgress < 100) {
+      toast({ title: "Course Not Finished", description: "Please complete all lessons and quizzes.", variant: "destructive" });
+      return;
+    }
+    if (courseId) {
+      markCourseAsComplete(courseId);
+    }
+  };
 
-  // CRITICAL FIX: This check handles the case where the course was not found
-  if (!course) {
-    return (
-        <div className="min-h-screen bg-background">
-            <Navigation />
-            <div className="text-center py-20">
-                <h1 className="text-2xl font-bold">Course Not Found</h1>
-                <p className="text-muted-foreground">The course you are looking for does not exist.</p>
-            </div>
-        </div>
-    );
-  }
+  const handleViewContent = (type: 'PDF' | 'Video') => {
+    // This function remains the same
+    toast({ title: "Feature Coming Soon!", description: `The functionality to view ${type} content will be added.` });
+  };
 
-  // Only once loading is false AND we have a course, we render the main content
+  if (loading) { return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>; }
+  if (!course) { return <div>Course not found</div>; }
+
   return (
-    <div className="min-h-screen bg-background">
-      <Navigation />
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <header className="mb-8">
-          {/* Using optional chaining (?.) for extra safety */}
-          <p className="text-primary font-semibold mb-2">{course?.category ?? 'Tech Course'}</p>
-          <h1 className="text-4xl font-bold mb-2">{course?.title}</h1>
-          <p className="text-muted-foreground text-lg">{course?.description}</p>
-        </header>
+    <>
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <header className="mb-8">
+            <p className="text-primary font-semibold mb-2">{course?.category ?? 'Tech Course'}</p>
+            <h1 className="text-4xl font-bold mb-2">{course?.title}</h1>
+            <p className="text-muted-foreground text-lg">{course?.description}</p>
+          </header>
+          
+          {/* --- MISSING BUTTONS RESTORED HERE --- */}
+          <div className="bg-card border rounded-lg p-4 mb-8 flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <div>
+              <h3 className="font-semibold">Course Status</h3>
+              <p className="text-sm text-muted-foreground">
+                {isCompleted ? "You have completed this course!" : `You are at ${courseProgress}% progress.`}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline"><Trophy className="mr-2 h-4 w-4" /> Start Final Exam</Button>
+              <Button onClick={handleMarkAsComplete} disabled={isCompleted}>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                {isCompleted ? 'Completed' : 'Mark as Complete'}
+              </Button>
+            </div>
+          </div>
 
-        <section>
-          <h2 className="text-2xl font-semibold mb-4">Course Modules</h2>
-          <Accordion type="single" collapsible className="w-full">
-            {modules.map((module) => (
-              <AccordionItem key={module.id} value={`item-${module.position}`}>
-                <AccordionTrigger className="text-lg text-left">
-                  {`Module ${module.position}: ${module.title}`}
-                </AccordionTrigger>
-                <AccordionContent className="p-4 space-y-4">
-                  <p className="text-muted-foreground">Lessons and content for this module will be displayed here.</p>
-                  <Button onClick={() => handleGenerateQuiz(module.id)} disabled={!!generatingQuiz}>
-                    {generatingQuiz === module.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-2 h-4 w-4" />}
-                    {generatingQuiz === module.id ? 'Generating Quiz...' : 'Generate AI Quiz'}
-                  </Button>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </section>
+          <section>
+            <h2 className="text-2xl font-semibold mb-4">Course Modules</h2>
+            <Accordion type="single" collapsible className="w-full">
+              {modules.map((module) => (
+                <AccordionItem key={module.id} value={`item-${module.position}`}>
+                  <AccordionTrigger className="text-lg text-left">{`Module ${module.position}: ${module.title}`}</AccordionTrigger>
+                  <AccordionContent className="p-4 space-y-4">
+                    <p className="text-muted-foreground">Access this module's learning materials below.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => handleViewContent('Video')}><Video className="mr-2 h-4 w-4" /> View Video</Button>
+                      <Button variant="outline" onClick={() => handleViewContent('PDF')}><FileText className="mr-2 h-4 w-4" /> View PDF</Button>
+                      <Button onClick={() => handleGenerateQuiz(module.id, false)} disabled={!!generatingQuiz}>
+                        {generatingQuiz === module.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-2 h-4 w-4" />}
+                        {generatingQuiz === module.id ? 'Generating...' : 'Start Module Quiz'}
+                      </Button>
+                      <Button variant="outline" size="icon" onClick={() => handleGenerateQuiz(module.id, true)} disabled={!!generatingQuiz} title="Regenerate Quiz with new questions">
+                         <RotateCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </section>
+        </div>
       </div>
-    </div>
+      
+      <QuizModal
+        isOpen={isQuizModalOpen}
+        onClose={() => setIsQuizModalOpen(false)}
+        quizData={currentQuizData}
+        onSubmit={handleQuizSubmit}
+      />
+    </>
   );
 };
 

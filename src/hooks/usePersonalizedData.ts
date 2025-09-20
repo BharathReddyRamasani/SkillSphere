@@ -94,6 +94,7 @@ export interface UserCourseProgress {
   total_lessons: number;
   completed_lessons: number;
   progress_percentage: number;
+  status: 'in_progress' | 'completed'; // ADD THIS LINE
 }
 
 export const usePersonalizedData = () => {
@@ -157,6 +158,7 @@ export const usePersonalizedData = () => {
       console.error('Error initializing new user:', error);
     }
   };
+
   const fetchAllUserData = async (userId: string) => {
     try {
       const [
@@ -176,9 +178,7 @@ export const usePersonalizedData = () => {
         supabase.from('ai_recommendations').select('*').eq('user_id', userId).eq('is_active', true),
         supabase.from('roadmap_weeks').select('*').eq('user_id', userId).order('week_number'),
         supabase.from('interview_sessions').select('*').eq('user_id', userId).order('completed_at', { ascending: false }).limit(5),
-        
-        // THIS IS THE CORRECTED LINE:
-        supabase.from('user_course_progress').select<'*', UserCourseProgress>('*').eq('user_id', userId)
+        supabase.from('user_course_progress').select('*').eq('user_id', userId)
       ]);
 
       setUserStats(statsResponse.data);
@@ -188,16 +188,11 @@ export const usePersonalizedData = () => {
       setRecommendations(recommendationsResponse.data || []);
       setRoadmapWeeks(roadmapResponse.data || []);
       setInterviewSessions(interviewsResponse.data || []);
-      
-      // The type assertion is no longer needed here because the type is correctly inferred from the call above.
       setEnrollments(enrollmentsResponse.data || []);
-
     } catch (error) {
       console.error('Error fetching user data:', error);
     }
   };
-
- 
 
   const enrollInCourse = async (courseId: string) => {
     if (!user) {
@@ -217,6 +212,30 @@ export const usePersonalizedData = () => {
     } catch (error) {
       console.error('Error enrolling in course:', error);
       toast({ title: "Error", description: (error as Error).message || "Could not enroll in the course.", variant: "destructive" });
+    }
+  };
+
+  const markCourseAsComplete = async (courseId: string) => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to mark a course as complete.", variant: "destructive" });
+      return;
+    }
+    try {
+      const { error: enrollError } = await supabase
+        .from('enrollments')
+        .update({ status: 'completed' })
+        .eq('user_id', user.id)
+        .eq('course_id', courseId);
+      if (enrollError) throw enrollError;
+
+      const { error: statsError } = await supabase.rpc('increment_courses_completed', { user_id_param: user.id });
+      if (statsError) throw statsError;
+
+      toast({ title: "Course Completed!", description: "Congratulations! This will now be reflected on your dashboard." });
+      await fetchAllUserData(user.id);
+    } catch (error) {
+      console.error("Error marking course as complete:", error);
+      toast({ title: "Error", description: "Could not update course status.", variant: "destructive" });
     }
   };
 
@@ -333,6 +352,10 @@ export const usePersonalizedData = () => {
     generateAIInsights,
     trackLearningActivity,
     enrollInCourse,
+    markCourseAsComplete,
     refreshData: () => user && fetchAllUserData(user.id)
   };
 };
+
+// FILE: src/hooks/usePersonalizedData.ts
+// FILE: src/hooks/usePersonalizedData.ts

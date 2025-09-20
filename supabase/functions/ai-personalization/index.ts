@@ -56,61 +56,39 @@ serve(async (req) => {
   }
 });
 
-async function generateQuiz(supabase: any, userId: string, data: { moduleId: string, courseId: string }) {
-  const { moduleId, courseId } = data;
+async function generateQuiz(supabase: any, userId: string, data: { moduleId: string }) {
+  const { moduleId } = data;
 
-  const { data: moduleData } = await supabase.from('modules').select('id, title').eq('id', moduleId).single();
-  const { data: courseData } = await supabase.from('courses').select('id, title').eq('id', courseId).single();
+  // This calls the special database function we created to efficiently get 5 random questions.
+  const { data: questions, error } = await supabase
+    .rpc('get_random_questions_for_module', {
+      target_module_id: moduleId,
+      question_limit: 5
+    });
 
-  if (!moduleData || !courseData) {
-    throw new Error('Module or Course not found');
+  if (error) {
+    console.error('Error fetching random questions:', error);
+    throw error;
   }
 
-  const { data: existingQuiz } = await supabase.from('quizzes').select('id').eq('module_id', moduleId).single();
-  if (existingQuiz) {
-    console.log(`Quiz for module ${moduleId} already exists.`);
+  if (!questions || questions.length === 0) {
+     return new Response(JSON.stringify({ 
+        success: true, 
+        quizId: `fallback-for-${moduleId}`,
+        questions: [{
+            question_text: "No questions have been added for this module yet. Please check back later.",
+            options: {"a": "Okay", "b": "Got it", "c": "Understood", "d": "Will do"},
+            correct_answer: "a"
+        }]
+    }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
-
-  const prompt = `
-    You are an expert quiz creator for a tech learning platform.
-    The user is studying the course: "${courseData.title}".
-    They have just finished the module: "${moduleData.title}".
-
-    Generate a 5-question multiple-choice quiz based on the likely topics of this module.
-    For each question, provide 4 options (a, b, c, d) and indicate the correct answer.
-
-    Return the response as a single, minified JSON array of objects, with no extra text or explanations.
-    The format for each object in the array must be:
-    {
-      "question_text": "Your question here?",
-      "options": {"a": "Option A", "b": "Option B", "c": "Option C", "d": "Option D"},
-      "correct_answer": "c"
-    }
-  `;
-
-  const aiResponse = await callOpenAI(prompt);
-  const questions = JSON.parse(aiResponse);
-
-  const { data: newQuiz, error: quizError } = await supabase.from('quizzes').insert({
-    course_id: courseId,
-    module_id: moduleId,
-    quiz_type: 'module_quiz',
-    title: `${moduleData.title} Quiz`
-  }).select().single();
-
-  if (quizError) throw quizError;
-
-  const questionsToInsert = questions.map((q: any) => ({
-    quiz_id: newQuiz.id,
-    question_text: q.question_text,
-    options: q.options,
-    correct_answer: q.correct_answer
-  }));
-
-  const { error: questionsError } = await supabase.from('questions').insert(questionsToInsert);
-  if (questionsError) throw questionsError;
-
-  return new Response(JSON.stringify({ success: true, quizId: newQuiz.id, questions: questionsToInsert }), {
+  
+  // The database function returns the questions directly.
+  return new Response(JSON.stringify({
+    success: true,
+    quizId: `quiz-for-${moduleId}`, 
+    questions: questions
+  }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 }
@@ -251,10 +229,10 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
   });
 
   const defaultSkills = [
-    { skill_name: 'JavaScript', level: 60, category: 'Programming' },
-    { skill_name: 'React', level: 45, category: 'Frontend' },
-    { skill_name: 'Node.js', level: 30, category: 'Backend' },
-    { skill_name: 'SQL', level: 25, category: 'Database' }
+    { skill_name: 'JavaScript', level: 60, category: 'Programming', mastery_score: 0.6, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
+    { skill_name: 'React', level: 45, category: 'Frontend', mastery_score: 0.45, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
+    { skill_name: 'Node.js', level: 30, category: 'Backend', mastery_score: 0.3, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
+    { skill_name: 'SQL', level: 25, category: 'Database', mastery_score: 0.25, last_practiced: new Date().toISOString(), decay_rate: 0.01 }
   ];
 
   for (const skill of defaultSkills) {
@@ -293,7 +271,7 @@ async function applyForgettingCurve(supabase: any, skills: any[], userId: string
   for (const skill of skills) {
     const daysSincePractice = Math.floor((Date.now() - new Date(skill.last_practiced).getTime()) / (1000 * 60 * 60 * 24));
     
-    const retentionRate = Math.exp(-daysSincePractice * skill.decay_rate);
+    const retentionRate = Math.exp(-daysSincePractice * (skill.decay_rate || 0.01));
     const decayedMastery = skill.mastery_score * retentionRate;
     
     const newMastery = Math.max(0.1, Math.min(1, decayedMastery));
@@ -388,11 +366,11 @@ async function callOpenAI(prompt: string): Promise<string> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-2025-08-07',
+        model: 'gpt-3.5-turbo',
         messages: [
           { 
             role: 'system', 
-            content: 'You are an advanced AI career advisor specializing in personalized learning and career guidance. Apply data science principles and machine learning concepts. Always return valid JSON responses only.' 
+            content: 'You are an advanced AI career advisor and quiz creator specializing in personalized learning and career guidance. Apply data science principles and machine learning concepts. Always return valid, minified JSON responses only.' 
           },
           { role: 'user', content: prompt }
         ],
@@ -403,12 +381,10 @@ async function callOpenAI(prompt: string): Promise<string> {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('OpenAI API error response:', errorText);
-      
       if (response.status === 429) {
         console.log('Rate limited, returning fallback data');
         return generateFallbackResponse(prompt);
       }
-      
       throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
     }
 

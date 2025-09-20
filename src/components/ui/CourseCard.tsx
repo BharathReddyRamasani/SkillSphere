@@ -16,26 +16,25 @@ export const CourseCard = ({ course, onEnroll }) => {
             <h3 className="text-lg font-bold hover:text-primary transition-colors">
               <Link to={`/courses/${course.id}`}>{course.title}</Link>
             </h3>
-            {/* Use the new instructor field from the database */}
             <p className="text-sm text-muted-foreground">by {course.instructor ?? 'LearnSphere Instructors'}</p>
           </div>
           <div className="flex items-center space-x-2">
-             {/* Use the new level and category fields */}
              <Badge variant="outline">{course.level ?? 'Intermediate'}</Badge>
              <Badge variant="secondary">{course.category ?? 'Tech'}</Badge>
           </div>
         </div>
         <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{course.description}</p>
         <div className="flex items-center flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
-          {/* Use the new rating and students_count fields */}
           <div className="flex items-center">
             <Star className="w-4 h-4 mr-1 text-warning fill-warning" />
             {course.rating ?? '4.5'} ({ (course.students_count ?? 0).toLocaleString() } students)
           </div>
-          {/* Use the new duration_hours field */}
-          <div className="flex items-center"><Clock className="w-4 h-4 mr-1" /> {course.duration_hours ? `${course.duration_hours} hours` : '20 hours'}</div>
-           {/* Use the new modules_count field */}
-          <div className="flex items-center"><BookOpen className="w-4 h-4 mr-1" /> {course.modules_count ? `${course.modules_count} modules` : '10 modules'}</div>
+          <div className="flex items-center">
+            <Clock className="w-4 h-4 mr-1" /> {course.duration_hours ? `${course.duration_hours} hours` : '20 hours'}
+          </div>
+          <div className="flex items-center">
+            <BookOpen className="w-4 h-4 mr-1" /> {course.modules_count ? `${course.modules_count} modules` : '8 modules'}
+          </div>
         </div>
       </div>
       <div className="md:w-52 flex flex-col justify-between items-stretch md:items-end">
