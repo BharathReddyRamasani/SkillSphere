@@ -1,3 +1,4 @@
+// FILE: src/hooks/usePersonalizedData.ts
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -99,6 +100,8 @@ export interface UserCourseProgress {
 
 export const usePersonalizedData = () => {
   const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [preferences, setPreferences] = useState<any>(null);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [skills, setSkills] = useState<UserSkill[]>([]);
   const [goals, setGoals] = useState<UserGoal[]>([]);
@@ -162,6 +165,8 @@ export const usePersonalizedData = () => {
   const fetchAllUserData = async (userId: string) => {
     try {
       const [
+        profileResponse,
+        preferencesResponse,
         statsResponse,
         skillsResponse,
         goalsResponse,
@@ -171,6 +176,8 @@ export const usePersonalizedData = () => {
         interviewsResponse,
         enrollmentsResponse
       ] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userId).single(),
+        supabase.from('user_preferences').select('*').eq('user_id', userId).single(),
         supabase.from('user_stats').select('*').eq('user_id', userId).single(),
         supabase.from('user_skills').select('*').eq('user_id', userId),
         supabase.from('user_goals').select('*').eq('user_id', userId),
@@ -181,6 +188,8 @@ export const usePersonalizedData = () => {
         supabase.from('user_course_progress').select('*').eq('user_id', userId)
       ]);
 
+      setProfile(profileResponse.data);
+      setPreferences(preferencesResponse.data);
       setUserStats(statsResponse.data);
       setSkills(skillsResponse.data || []);
       setGoals(goalsResponse.data || []);
@@ -194,7 +203,7 @@ export const usePersonalizedData = () => {
     }
   };
 
-  const enrollInCourse = async (courseId: string) => {
+  const enrollInCourse = async (courseId: string, courseTitle: string) => {
     if (!user) {
       toast({ title: "Error", description: "You must be logged in to enroll.", variant: "destructive" });
       return;
@@ -208,6 +217,10 @@ export const usePersonalizedData = () => {
       const { error } = await supabase.from('enrollments').insert({ user_id: user.id, course_id: courseId });
       if (error) throw error;
       toast({ title: "Success!", description: "You have successfully enrolled." });
+      await trackLearningActivity({
+        activity_type: 'enrollment',
+        title: `Enrolled in: ${courseTitle}`,
+      });
       await fetchAllUserData(user.id);
     } catch (error) {
       console.error('Error enrolling in course:', error);
@@ -336,8 +349,68 @@ export const usePersonalizedData = () => {
     }
   };
 
+  const updateProfile = async (updates: {
+    fullName: string;
+    avatarUrl: string;
+    careerFocus: string;
+    primaryGoal: string;
+    interests: string[];
+    skillsToLearn: string[];
+  }) => {
+    if (!user) return false;
+    try {
+      // Create a list of all database updates to perform
+      const updatePromises = [];
+
+      // 1. Update the 'profiles' table
+      updatePromises.push(
+        supabase.from('profiles').update({
+          full_name: updates.fullName,
+          avatar_url: updates.avatarUrl,
+        }).eq('id', user.id)
+      );
+      
+      // 2. Update the 'user_preferences' table
+      updatePromises.push(
+        supabase.from('user_preferences').update({
+          career_focus: updates.careerFocus,
+          interests: updates.interests,
+          skills_to_learn: updates.skillsToLearn
+        }).eq('user_id', user.id)
+      );
+      
+      // 3. Update the primary user goal (assuming one for now)
+      if (goals && goals.length > 0) {
+        updatePromises.push(
+          supabase.from('user_goals').update({
+            title: updates.primaryGoal
+          }).eq('id', goals[0].id)
+        );
+      }
+      
+      // Run all updates concurrently
+      const results = await Promise.all(updatePromises);
+      
+      // Check for any errors
+      const failedUpdate = results.find(result => result.error);
+      if (failedUpdate) {
+        throw failedUpdate.error;
+      }
+      
+      // Refresh all user data to show changes immediately
+      await fetchAllUserData(user.id);
+      return true;
+
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      return false;
+    }
+  };
+
   return {
     user,
+    profile,
+    preferences,
     userStats,
     skills,
     goals,
@@ -353,9 +426,7 @@ export const usePersonalizedData = () => {
     trackLearningActivity,
     enrollInCourse,
     markCourseAsComplete,
+    updateProfile,
     refreshData: () => user && fetchAllUserData(user.id)
   };
 };
-
-// FILE: src/hooks/usePersonalizedData.ts
-// FILE: src/hooks/usePersonalizedData.ts

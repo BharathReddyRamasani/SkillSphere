@@ -228,20 +228,6 @@ async function initializeUserData(supabase: any, userId: string, data: any) {
     experience_level: preferences.experience_level || 'intermediate'
   });
 
-  const defaultSkills = [
-    { skill_name: 'JavaScript', level: 60, category: 'Programming', mastery_score: 0.6, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
-    { skill_name: 'React', level: 45, category: 'Frontend', mastery_score: 0.45, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
-    { skill_name: 'Node.js', level: 30, category: 'Backend', mastery_score: 0.3, last_practiced: new Date().toISOString(), decay_rate: 0.01 },
-    { skill_name: 'SQL', level: 25, category: 'Database', mastery_score: 0.25, last_practiced: new Date().toISOString(), decay_rate: 0.01 }
-  ];
-
-  for (const skill of defaultSkills) {
-    await supabase.from('user_skills').upsert({
-      user_id: userId,
-      ...skill
-    });
-  }
-
   await supabase.from('user_goals').upsert({
     user_id: userId,
     goal_type: 'career',
