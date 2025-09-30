@@ -21,11 +21,13 @@ import {
   Award,
   TrendingUp,
   Clock,
-  Loader2
+  Loader2,
+  Plus
 } from "lucide-react";
 import { usePersonalizedData } from "@/hooks/usePersonalizedData";
 import { EditProfileModal } from '@/components/EditProfileModal';
 import { SkillsRadarChart } from '@/components/SkillsRadarChart';
+import { AddSkillModal } from '@/components/AddSkillModal';
 
 const Profile = () => {
   const { 
@@ -37,11 +39,14 @@ const Profile = () => {
     activities, 
     preferences,
     loading,
-    updateProfile
+    updateProfile,
+    updateUserPassword,
+    addUserSkill
   } = usePersonalizedData();
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [showChart, setShowChart] = useState(false);
+  const [isAddSkillModalOpen, setIsAddSkillModalOpen] = useState(false);
 
   if (loading) {
     return (
@@ -87,7 +92,7 @@ const Profile = () => {
                     </AvatarFallback>
                   </Avatar>
                   <h2 className="text-2xl font-bold mb-2">{profile?.full_name || user.email?.split('@')[0]}</h2>
-                  <p className="text-muted-foreground mb-4">LearnSphere Student</p>
+                  <p className="text-muted-foreground mb-4">SkillSphere Student</p>
                   
                   <div className="flex items-center justify-center space-x-4 text-sm text-muted-foreground mb-4">
                     <div className="flex items-center">
@@ -161,10 +166,16 @@ const Profile = () => {
               <Card className="learning-card p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-2xl font-semibold">Skills Portfolio</h2>
-                  <Button variant="outline" size="sm" onClick={() => setShowChart(!showChart)}>
-                    <TrendingUp className="w-4 h-4 mr-2" />
-                    {showChart ? 'Hide Chart' : 'Show Chart'}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setShowChart(!showChart)}>
+                      <TrendingUp className="w-4 h-4 mr-2" />
+                      {showChart ? 'Hide Chart' : 'Show Chart'}
+                    </Button>
+                    <Button size="sm" onClick={() => setIsAddSkillModalOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Skill
+                    </Button>
+                  </div>
                 </div>
                 
                 {showChart && displaySkills.length > 0 && <div className="mb-6"><SkillsRadarChart skills={displaySkills} /></div>}
@@ -221,13 +232,19 @@ const Profile = () => {
       </div>
 
       <EditProfileModal 
-  isOpen={isEditModalOpen}
-  onClose={() => setIsEditModalOpen(false)}
-  profile={profile}
-  preferences={preferences}
-  goal={goals?.[0]} // Pass the first goal
-  onSave={updateProfile}
-/>
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        profile={profile}
+        preferences={preferences}
+        goal={goals?.[0]} // Pass the first goal
+        onSave={updateProfile}
+        onPasswordSave={updateUserPassword}
+      />
+      <AddSkillModal
+        isOpen={isAddSkillModalOpen}
+        onClose={() => setIsAddSkillModalOpen(false)}
+        onSave={addUserSkill}
+      />
     </>
   );
 };

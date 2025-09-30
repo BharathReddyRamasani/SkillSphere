@@ -218,29 +218,17 @@ async function generateAIInsights(supabase: any, userId: string, data: any) {
 }
 
 async function initializeUserData(supabase: any, userId: string, data: any) {
-  const { preferences = {} } = data || {};
+  // This function now ONLY creates preferences and stats.
   
   await supabase.from('user_preferences').upsert({
     user_id: userId,
-    learning_style: preferences.learning_style || 'visual',
-    preferred_schedule: preferences.preferred_schedule || 'flexible',
-    career_focus: preferences.career_focus || 'full-stack-development',
-    experience_level: preferences.experience_level || 'intermediate'
-  });
-
-  await supabase.from('user_goals').upsert({
-    user_id: userId,
-    goal_type: 'career',
-    title: 'Become a Full-Stack Developer',
-    description: 'Master both frontend and backend technologies',
-    target_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-    status: 'in_progress'
+    career_focus: 'full-stack-development', // A default focus they can change
   });
 
   await supabase.from('user_stats').upsert({
     user_id: userId,
-    placement_readiness: 35,
-    learning_velocity: 8,
+    placement_readiness: 0,
+    learning_velocity: 0,
     total_learning_hours: 0,
     courses_completed: 0,
     skills_mastered: 0

@@ -407,6 +407,40 @@ export const usePersonalizedData = () => {
     }
   };
 
+  const updateUserPassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      toast({ title: "Error Updating Password", description: error.message, variant: "destructive" });
+      return false;
+    }
+    toast({ title: "Success!", description: "Your password has been updated." });
+    return true;
+  };
+
+  const addUserSkill = async (skill: { name: string, category: string }) => {
+    if (!user) return false;
+    try {
+      const { error } = await supabase.from('user_skills').insert({
+        user_id: user.id,
+        skill_name: skill.name,
+        level: 1,
+        category: skill.category,
+        mastery_score: 0.1,
+        last_practiced: new Date().toISOString(),
+        decay_rate: 0.01,
+        reinforcement_count: 0
+      });
+      if (error) throw error;
+      toast({ title: "Success!", description: `Added skill: ${skill.name}` });
+      await fetchAllUserData(user.id); // Refresh data
+      return true;
+    } catch (error) {
+      console.error("Error adding skill:", error);
+      toast({ title: "Error", description: "Could not add skill.", variant: "destructive" });
+      return false;
+    }
+  };
+
   return {
     user,
     profile,
@@ -427,6 +461,8 @@ export const usePersonalizedData = () => {
     enrollInCourse,
     markCourseAsComplete,
     updateProfile,
+    updateUserPassword,
+    addUserSkill,
     refreshData: () => user && fetchAllUserData(user.id)
   };
 };
