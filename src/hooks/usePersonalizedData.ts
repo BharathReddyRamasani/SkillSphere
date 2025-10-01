@@ -352,49 +352,47 @@ export const usePersonalizedData = () => {
   const updateProfile = async (updates: {
     fullName: string;
     avatarUrl: string;
-    careerFocus: string;
-    primaryGoal: string;
+    bio: string;
+    careerFocuses: string[]; // Changed from careerFocus
     interests: string[];
     skillsToLearn: string[];
+    goals: string[]; // Now accepts an array of goal titles
   }) => {
     if (!user) return false;
     try {
-      // Create a list of all database updates to perform
-      const updatePromises = [];
-
-      // 1. Update the 'profiles' table
-      updatePromises.push(
+      // Perform all updates in parallel
+      const [profileResult, prefsResult] = await Promise.all([
+        // 1. Update the 'profiles' table
         supabase.from('profiles').update({
           full_name: updates.fullName,
           avatar_url: updates.avatarUrl,
-        }).eq('id', user.id)
-      );
-      
-      // 2. Update the 'user_preferences' table
-      updatePromises.push(
+          bio: updates.bio,
+        }).eq('id', user.id),
+
+        // 2. Update the 'user_preferences' table
         supabase.from('user_preferences').update({
-          career_focus: updates.careerFocus,
+          career_focuses: updates.careerFocuses, // Changed from careerFocus
           interests: updates.interests,
           skills_to_learn: updates.skillsToLearn
         }).eq('user_id', user.id)
-      );
-      
-      // 3. Update the primary user goal (assuming one for now)
-      if (goals && goals.length > 0) {
-        updatePromises.push(
-          supabase.from('user_goals').update({
-            title: updates.primaryGoal
-          }).eq('id', goals[0].id)
-        );
-      }
-      
-      // Run all updates concurrently
-      const results = await Promise.all(updatePromises);
-      
-      // Check for any errors
-      const failedUpdate = results.find(result => result.error);
-      if (failedUpdate) {
-        throw failedUpdate.error;
+      ]);
+
+      if (profileResult.error) throw profileResult.error;
+      if (prefsResult.error) throw prefsResult.error;
+
+      // 3. Synchronize the 'user_goals' table (delete old, insert new)
+      // This is a robust way to handle lists
+      const { error: deleteError } = await supabase.from('user_goals').delete().eq('user_id', user.id);
+      if (deleteError) throw deleteError;
+
+      if (updates.goals.length > 0) {
+        const goalsToInsert = updates.goals.map(goalTitle => ({
+          user_id: user.id,
+          title: goalTitle,
+          goal_type: 'career', // Or derive this as needed
+        }));
+        const { error: insertError } = await supabase.from('user_goals').insert(goalsToInsert);
+        if (insertError) throw insertError;
       }
       
       // Refresh all user data to show changes immediately

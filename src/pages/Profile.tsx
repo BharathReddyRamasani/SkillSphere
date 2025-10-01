@@ -236,7 +236,7 @@ const Profile = () => {
         onClose={() => setIsEditModalOpen(false)}
         profile={profile}
         preferences={preferences}
-        goal={goals?.[0]} // Pass the first goal
+        goals={goals} // Pass the first goal
         onSave={updateProfile}
         onPasswordSave={updateUserPassword}
       />
