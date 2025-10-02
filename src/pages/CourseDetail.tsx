@@ -570,7 +570,6 @@
 // FILE: src/components/QuizModal.tsx
 // FILE: src/pages/CourseDetail.tsx
 // FILE: src/pages/CourseDetail.tsx
-
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -599,52 +598,77 @@ const CourseDetail = () => {
   const isCompleted = enrollment?.status === 'completed';
 
   useEffect(() => {
-    // This function fetches all the necessary data for the page
     const fetchCourseData = async () => {
-      if (!courseId) { setLoading(false); return; }
+      if (!courseId) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const courseRequest = supabase.from('courses').select('*').eq('id', courseId).single();
         const modulesRequest = supabase.from('modules').select('*').eq('course_id', courseId).order('position');
         const [courseResponse, modulesResponse] = await Promise.all([courseRequest, modulesRequest]);
+
+        if (courseResponse.error) throw courseResponse.error;
+        if (modulesResponse.error) throw modulesResponse.error;
+
         setCourse(courseResponse.data);
         setModules(modulesResponse.data || []);
-      } catch (error) { console.error("Error fetching course data:", error); setCourse(null); }
-      finally { setLoading(false); }
+      } catch (error) {
+        console.error("Error fetching course data:", error);
+        setCourse(null);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchCourseData();
   }, [courseId]);
 
   const handleGenerateQuiz = async (moduleId: string, regenerate = false) => {
-    // This function remains the same
     if (!user || !courseId) return;
     setGeneratingQuiz(moduleId);
+    
     try {
       const { data, error } = await supabase.functions.invoke('ai-personalization', {
         body: { userId: user.id, action: 'generate_quiz', data: { moduleId, courseId, regenerate } }
       });
       if (error) throw error;
+      
       setCurrentQuizData({ ...data, moduleTitle: modules.find(m => m.id === moduleId)?.title });
       setIsQuizModalOpen(true);
       toast({ title: "Quiz Generated!", description: "Your AI-powered quiz is ready." });
     } catch (error) {
       console.error('Failed to generate quiz:', error);
-      toast({ title: "Error", description: (error as Error).message || "Edge Function returned a non-2xx status code", variant: "destructive" });
+      toast({ title: "Error", description: (error as Error).message || "Edge Function returned an error. Please check credits or logs.", variant: "destructive" });
     } finally {
       setGeneratingQuiz(null);
     }
   };
 
   const handleQuizSubmit = async (quizId: string, score: number) => {
-    // This function remains the same
     if (!user || !quizId) return;
-    await supabase.from('quiz_attempts').upsert({ user_id: user.id, quiz_id: quizId, score: score }, { onConflict: 'user_id, quiz_id' });
-    toast({ title: "Score Saved!", description: `You scored ${score}%.` });
-    await trackLearningActivity({ activity_type: 'quiz', title: `Completed Quiz: ${currentQuizData?.moduleTitle || 'Module Quiz'}`, accuracy_score: score });
+    
+    // Use upsert to handle both first-time and subsequent attempts
+    const { error } = await supabase.from('quiz_attempts').upsert({
+      user_id: user.id,
+      quiz_id: quizId,
+      score: score
+    }, { onConflict: 'user_id, quiz_id' });
+
+    if (error) {
+      toast({ title: "Error", description: "Could not save your quiz score.", variant: "destructive" });
+    } else {
+      toast({ title: "Score Saved!", description: `You scored ${score}%.` });
+    }
+
+    await trackLearningActivity({
+      activity_type: 'quiz',
+      title: `Completed Quiz: ${currentQuizData?.moduleTitle || 'Module Quiz'}`,
+      accuracy_score: score,
+    });
   };
   
   const handleMarkAsComplete = () => {
-    // This function remains the same
     if (courseProgress < 100) {
       toast({ title: "Course Not Finished", description: "Please complete all lessons and quizzes.", variant: "destructive" });
       return;
@@ -655,12 +679,24 @@ const CourseDetail = () => {
   };
 
   const handleViewContent = (type: 'PDF' | 'Video') => {
-    // This function remains the same
     toast({ title: "Feature Coming Soon!", description: `The functionality to view ${type} content will be added.` });
   };
 
-  if (loading) { return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>; }
-  if (!course) { return <div>Course not found</div>; }
+  if (loading) {
+    return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
+
+  if (!course) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <div className="text-center py-20">
+          <h1 className="text-2xl font-bold">Course Not Found</h1>
+          <p className="text-muted-foreground">The course you are looking for does not exist or failed to load.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -673,7 +709,6 @@ const CourseDetail = () => {
             <p className="text-muted-foreground text-lg">{course?.description}</p>
           </header>
           
-          {/* --- MISSING BUTTONS RESTORED HERE --- */}
           <div className="bg-card border rounded-lg p-4 mb-8 flex flex-col sm:flex-row gap-4 justify-between items-center">
             <div>
               <h3 className="font-semibold">Course Status</h3>
